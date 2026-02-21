@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useRef } from "react";
-import { Camera, Plus, Trash2, GripVertical, ChevronDown, ChevronUp } from "lucide-react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
+import { Camera, Plus, Trash2, GripVertical, ChevronDown, ChevronUp, Save, FolderOpen, FilePlus, X, Clock } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -52,6 +52,53 @@ interface FormData {
   verticalLadderRungs: string;
   stepLadderSteps: string;
   airborneContaminants: string;
+}
+
+interface SavedEvaluation {
+  id: string;
+  savedAt: string;
+  formData: FormData;
+  physicalFreq: Record<string, Frequency>;
+  envFreq: Record<string, Frequency>;
+  specialComments: Record<string, string>;
+  photoEntries: Omit<PhotoEntry, "file">[];
+  pushPullEntries: Omit<PushPullEntry, "file">[];
+}
+
+const STORAGE_KEY = "ergodocs_pdv_evaluations";
+const AUTOSAVE_KEY = "ergodocs_pdv_autosave";
+
+function getSavedEvaluations(): SavedEvaluation[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
+function saveEvaluationToStorage(evaluation: SavedEvaluation) {
+  const existing = getSavedEvaluations();
+  const idx = existing.findIndex((e) => e.id === evaluation.id);
+  if (idx >= 0) {
+    existing[idx] = evaluation;
+  } else {
+    existing.unshift(evaluation);
+  }
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(existing));
+}
+
+function deleteEvaluationFromStorage(id: string) {
+  const existing = getSavedEvaluations().filter((e) => e.id !== id);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(existing));
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -203,22 +250,52 @@ function FrequencyGrid({ items, values, onChange }: {
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
+const EMPTY_FORM: FormData = {
+  name: "", date: new Date().toISOString().split("T")[0], timeStart: "", phone: "",
+  jobTitle: "", jobDescription: "", drive: "",
+  liftFloorToKnuckles: "", liftFloorToWaist: "", liftFloorToShoulders: "", liftFloorToCrown: "",
+  carryLbs1: "", carryFeet1: "", carryLbs2: "", carryFeet2: "",
+  pushLbs1: "", pullLbs1: "", pushLbs2: "", pullLbs2: "",
+  stairClimbSteps1: "", stairClimbSteps2: "", stairCarryLbs: "",
+  ladderStepsAFrame: "", verticalLadderRungs: "", stepLadderSteps: "",
+  airborneContaminants: "",
+};
+
 export default function PDVCollectionForm() {
   // Section collapse state
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const toggle = (section: string) => setCollapsed((prev) => ({ ...prev, [section]: !prev[section] }));
 
+  // Saved evaluations management
+  const [savedEvals, setSavedEvals] = useState<SavedEvaluation[]>([]);
+  const [currentEvalId, setCurrentEvalId] = useState<string | null>(null);
+  const [showSavedPanel, setShowSavedPanel] = useState(false);
+  const [lastSaved, setLastSaved] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+
+  // Load saved evaluations on mount
+  useEffect(() => {
+    setSavedEvals(getSavedEvaluations());
+    // Check for autosave
+    try {
+      const autosave = localStorage.getItem(AUTOSAVE_KEY);
+      if (autosave) {
+        const data = JSON.parse(autosave);
+        if (data.formData?.name || data.formData?.jobTitle) {
+          setFormData(data.formData);
+          setPhysicalFreq(data.physicalFreq || {});
+          setEnvFreq(data.envFreq || {});
+          setSpecialComments(data.specialComments || {});
+          if (data.photoEntries?.length) setPhotoEntries(data.photoEntries.map((e: Omit<PhotoEntry, "file">) => ({ ...e, file: null })));
+          if (data.pushPullEntries?.length) setPushPullEntries(data.pushPullEntries.map((e: Omit<PushPullEntry, "file">) => ({ ...e, file: null })));
+          if (data.currentEvalId) setCurrentEvalId(data.currentEvalId);
+        }
+      }
+    } catch { /* ignore */ }
+  }, []);
+
   // Form data
-  const [formData, setFormData] = useState<FormData>({
-    name: "", date: new Date().toISOString().split("T")[0], timeStart: "", phone: "",
-    jobTitle: "", jobDescription: "", drive: "",
-    liftFloorToKnuckles: "", liftFloorToWaist: "", liftFloorToShoulders: "", liftFloorToCrown: "",
-    carryLbs1: "", carryFeet1: "", carryLbs2: "", carryFeet2: "",
-    pushLbs1: "", pullLbs1: "", pushLbs2: "", pullLbs2: "",
-    stairClimbSteps1: "", stairClimbSteps2: "", stairCarryLbs: "",
-    ladderStepsAFrame: "", verticalLadderRungs: "", stepLadderSteps: "",
-    airborneContaminants: "",
-  });
+  const [formData, setFormData] = useState<FormData>({ ...EMPTY_FORM });
 
   const updateField = (field: keyof FormData, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -256,6 +333,112 @@ export default function PDVCollectionForm() {
   const pushPullInputRef = useRef<HTMLInputElement>(null);
   const [activePhotoId, setActivePhotoId] = useState<string>("");
   const [activePushPullId, setActivePushPullId] = useState<string>("");
+
+  // Auto-save to localStorage every 5 seconds when data changes
+  const autoSave = useCallback(() => {
+    try {
+      const data = {
+        formData,
+        physicalFreq,
+        envFreq,
+        specialComments,
+        photoEntries: photoEntries.map(({ file, ...rest }) => rest),
+        pushPullEntries: pushPullEntries.map(({ file, ...rest }) => rest),
+        currentEvalId,
+      };
+      localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(data));
+    } catch { /* storage full or unavailable */ }
+  }, [formData, physicalFreq, envFreq, specialComments, photoEntries, pushPullEntries, currentEvalId]);
+
+  useEffect(() => {
+    const timer = setTimeout(autoSave, 2000);
+    return () => clearTimeout(timer);
+  }, [autoSave]);
+
+  // Save evaluation
+  const handleSave = async () => {
+    setSaveStatus("saving");
+
+    // Convert photos to base64 for storage
+    const photoEntriesForSave = await Promise.all(
+      photoEntries.map(async (entry) => {
+        let preview = entry.preview;
+        if (entry.file && !entry.preview.startsWith("data:")) {
+          preview = await fileToBase64(entry.file);
+        }
+        return { id: entry.id, preview, level: entry.level, description: entry.description, weight: entry.weight };
+      })
+    );
+
+    const pushPullEntriesForSave = await Promise.all(
+      pushPullEntries.map(async (entry) => {
+        let preview = entry.preview;
+        if (entry.file && !entry.preview.startsWith("data:")) {
+          preview = await fileToBase64(entry.file);
+        }
+        return { id: entry.id, preview, level: entry.level, pushPull: entry.pushPull, forceLbs: entry.forceLbs };
+      })
+    );
+
+    const id = currentEvalId || `eval_${Date.now()}`;
+    const evaluation: SavedEvaluation = {
+      id,
+      savedAt: new Date().toLocaleString(),
+      formData: { ...formData },
+      physicalFreq: { ...physicalFreq },
+      envFreq: { ...envFreq },
+      specialComments: { ...specialComments },
+      photoEntries: photoEntriesForSave,
+      pushPullEntries: pushPullEntriesForSave,
+    };
+
+    saveEvaluationToStorage(evaluation);
+    setCurrentEvalId(id);
+    setSavedEvals(getSavedEvaluations());
+    setLastSaved(evaluation.savedAt);
+    setSaveStatus("saved");
+    setTimeout(() => setSaveStatus("idle"), 2000);
+  };
+
+  // Load evaluation
+  const handleLoad = (evaluation: SavedEvaluation) => {
+    setFormData(evaluation.formData);
+    setPhysicalFreq(evaluation.physicalFreq);
+    setEnvFreq(evaluation.envFreq);
+    setSpecialComments(evaluation.specialComments);
+    setPhotoEntries(evaluation.photoEntries.map((e) => ({ ...e, file: null })));
+    setPushPullEntries(evaluation.pushPullEntries.map((e) => ({ ...e, file: null })));
+    setCurrentEvalId(evaluation.id);
+    setLastSaved(evaluation.savedAt);
+    setShowSavedPanel(false);
+  };
+
+  // Delete evaluation
+  const handleDelete = (id: string) => {
+    if (!confirm("Delete this saved evaluation?")) return;
+    deleteEvaluationFromStorage(id);
+    setSavedEvals(getSavedEvaluations());
+    if (currentEvalId === id) {
+      setCurrentEvalId(null);
+      setLastSaved(null);
+    }
+  };
+
+  // New evaluation
+  const handleNew = () => {
+    if (formData.name || formData.jobTitle) {
+      if (!confirm("Start a new evaluation? Unsaved changes will be lost.")) return;
+    }
+    setFormData({ ...EMPTY_FORM, date: new Date().toISOString().split("T")[0] });
+    setPhysicalFreq({});
+    setEnvFreq({});
+    setSpecialComments({});
+    setPhotoEntries([{ id: "1", file: null, preview: "", level: "", description: "", weight: "" }]);
+    setPushPullEntries([{ id: "1", file: null, preview: "", level: "", pushPull: "", forceLbs: "" }]);
+    setCurrentEvalId(null);
+    setLastSaved(null);
+    localStorage.removeItem(AUTOSAVE_KEY);
+  };
 
   // Photo entry handlers
   const addPhotoEntry = () => {
@@ -326,9 +509,97 @@ export default function PDVCollectionForm() {
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 md:px-8">
       {/* Header */}
-      <div className="text-center mb-8">
+      <div className="text-center mb-4">
         <h1 className="text-3xl font-bold text-[#1e40af]">PDV Collection Sheet</h1>
         <p className="text-slate-500 mt-1">Physical Demand Validation — On-Site Data Collection</p>
+      </div>
+
+      {/* ── Toolbar: New / Save / Load ─────────────────────────────────── */}
+      <div className="mb-6 bg-white rounded-lg border border-slate-200 p-3 md:p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={handleNew}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg font-medium text-sm hover:bg-slate-200 transition-colors"
+          >
+            <FilePlus className="w-4 h-4" /> New
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
+              saveStatus === "saved"
+                ? "bg-green-100 text-green-700"
+                : saveStatus === "saving"
+                ? "bg-yellow-100 text-yellow-700"
+                : "bg-[#1e40af] text-white hover:bg-[#1e3a8a]"
+            }`}
+          >
+            <Save className="w-4 h-4" />
+            {saveStatus === "saved" ? "Saved!" : saveStatus === "saving" ? "Saving..." : "Save"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowSavedPanel(!showSavedPanel)}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg font-medium text-sm hover:bg-slate-200 transition-colors"
+          >
+            <FolderOpen className="w-4 h-4" /> Saved ({savedEvals.length})
+          </button>
+          {lastSaved && (
+            <span className="flex items-center gap-1 text-xs text-slate-400 ml-auto">
+              <Clock className="w-3 h-3" /> Last saved: {lastSaved}
+            </span>
+          )}
+          {currentEvalId && (
+            <span className="text-xs text-[#1e40af] font-medium bg-[#dbeafe] px-2 py-1 rounded">
+              {formData.name || formData.jobTitle || "Untitled"}
+            </span>
+          )}
+        </div>
+
+        {/* Saved evaluations panel */}
+        {showSavedPanel && (
+          <div className="mt-3 border-t border-slate-200 pt-3">
+            {savedEvals.length === 0 ? (
+              <p className="text-sm text-slate-400 text-center py-4">No saved evaluations yet. Fill out a form and click Save.</p>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {savedEvals.map((ev) => {
+                  const label = ev.formData.name && ev.formData.jobTitle
+                    ? `${ev.formData.name} — ${ev.formData.jobTitle}`
+                    : ev.formData.name || ev.formData.jobTitle || "Untitled";
+                  const isActive = currentEvalId === ev.id;
+                  return (
+                    <div
+                      key={ev.id}
+                      className={`flex items-center justify-between p-3 rounded-lg border transition-colors ${
+                        isActive ? "bg-[#dbeafe] border-[#3b82f6]" : "bg-slate-50 border-slate-200 hover:bg-slate-100"
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => handleLoad(ev)}
+                        className="flex-1 text-left"
+                      >
+                        <div className="font-medium text-sm text-slate-800">{label}</div>
+                        <div className="text-xs text-slate-400 mt-0.5">
+                          {ev.formData.date} · Saved {ev.savedAt}
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); handleDelete(ev.id); }}
+                        className="ml-2 text-red-400 hover:text-red-600 p-1 transition-colors"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
@@ -740,43 +1011,28 @@ export default function PDVCollectionForm() {
           </div>
         </section>
 
-        {/* ── Save / Export ──────────────────────────────────────────────── */}
+        {/* ── Save / Actions ──────────────────────────────────────────── */}
         <div className="flex flex-col md:flex-row gap-3 pt-4">
           <button
             type="button"
-            className="flex-1 bg-[#1e40af] text-white py-3 px-6 rounded-lg font-semibold text-lg hover:bg-[#1e3a8a] transition-colors"
-            onClick={() => {
-              const data = { formData, physicalFreq, envFreq, specialComments, photoEntries: photoEntries.length, pushPullEntries: pushPullEntries.length };
-              console.log("Form Data:", data);
-              alert("Form data saved to console. Export functionality coming soon!");
-            }}
+            className={`flex-1 py-3 px-6 rounded-lg font-semibold text-lg transition-colors flex items-center justify-center gap-2 ${
+              saveStatus === "saved"
+                ? "bg-green-600 text-white"
+                : saveStatus === "saving"
+                ? "bg-yellow-500 text-white"
+                : "bg-[#1e40af] text-white hover:bg-[#1e3a8a]"
+            }`}
+            onClick={handleSave}
           >
-            Save Evaluation
+            <Save className="w-5 h-5" />
+            {saveStatus === "saved" ? "Saved!" : saveStatus === "saving" ? "Saving..." : "Save Evaluation"}
           </button>
           <button
             type="button"
-            className="flex-1 bg-white text-[#1e40af] py-3 px-6 rounded-lg font-semibold text-lg border-2 border-[#1e40af] hover:bg-[#dbeafe] transition-colors"
-            onClick={() => {
-              if (confirm("Clear all form data?")) {
-                setFormData({
-                  name: "", date: new Date().toISOString().split("T")[0], timeStart: "", phone: "",
-                  jobTitle: "", jobDescription: "", drive: "",
-                  liftFloorToKnuckles: "", liftFloorToWaist: "", liftFloorToShoulders: "", liftFloorToCrown: "",
-                  carryLbs1: "", carryFeet1: "", carryLbs2: "", carryFeet2: "",
-                  pushLbs1: "", pullLbs1: "", pushLbs2: "", pullLbs2: "",
-                  stairClimbSteps1: "", stairClimbSteps2: "", stairCarryLbs: "",
-                  ladderStepsAFrame: "", verticalLadderRungs: "", stepLadderSteps: "",
-                  airborneContaminants: "",
-                });
-                setPhysicalFreq({});
-                setEnvFreq({});
-                setSpecialComments({});
-                setPhotoEntries([{ id: "1", file: null, preview: "", level: "", description: "", weight: "" }]);
-                setPushPullEntries([{ id: "1", file: null, preview: "", level: "", pushPull: "", forceLbs: "" }]);
-              }
-            }}
+            className="flex-1 bg-white text-[#1e40af] py-3 px-6 rounded-lg font-semibold text-lg border-2 border-[#1e40af] hover:bg-[#dbeafe] transition-colors flex items-center justify-center gap-2"
+            onClick={handleNew}
           >
-            Clear Form
+            <FilePlus className="w-5 h-5" /> New Evaluation
           </button>
         </div>
       </form>
