@@ -227,14 +227,16 @@ function FrequencyGrid({ items, values, onChange }: {
               <td className="px-3 py-2 text-slate-500">{item.num}</td>
               <td className="px-3 py-2 text-slate-800">{item.label}</td>
               {frequencies.map((f) => (
-                <td key={f} className="px-3 py-2 text-center">
-                  <input
-                    type="radio"
-                    name={`freq-${item.num}-${item.label}`}
-                    checked={values[item.num] === f}
-                    onChange={() => onChange(item.num, f)}
-                    className="accent-[#1e40af]"
-                  />
+                <td key={f} className="px-1 py-1 text-center">
+                  <label className="flex items-center justify-center w-10 h-10 md:w-8 md:h-8 cursor-pointer rounded-lg hover:bg-slate-100 transition-colors mx-auto">
+                    <input
+                      type="radio"
+                      name={`freq-${item.num}-${item.label}`}
+                      checked={values[item.num] === f}
+                      onChange={() => onChange(item.num, f)}
+                      className="accent-[#1e40af] w-5 h-5 md:w-4 md:h-4"
+                    />
+                  </label>
                 </td>
               ))}
             </tr>
@@ -782,29 +784,42 @@ export default function PDVCollectionForm() {
               />
               <div className="space-y-4">
                 {photoEntries.map((entry, idx) => (
-                  <div key={entry.id} className="flex gap-3 items-start p-3 bg-slate-50 rounded-lg border border-slate-200">
-                    <div className="flex items-center text-slate-400 pt-2">
-                      <GripVertical className="w-4 h-4" />
-                      <span className="text-sm font-bold ml-1 text-slate-500">{idx + 1}</span>
-                    </div>
+                  <div key={entry.id} className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-3">
+                    <div className="flex gap-3 items-start">
+                      <div className="flex items-center text-slate-400 pt-2">
+                        <GripVertical className="w-4 h-4" />
+                        <span className="text-sm font-bold ml-1 text-slate-500">{idx + 1}</span>
+                      </div>
 
-                    {/* Photo thumbnail / upload button */}
-                    <div
-                      className="w-20 h-20 md:w-24 md:h-24 flex-shrink-0 rounded-lg border-2 border-dashed border-slate-300 flex items-center justify-center cursor-pointer hover:border-[#3b82f6] hover:bg-blue-50 transition-colors overflow-hidden"
-                      onClick={() => {
-                        setActivePhotoId(entry.id);
-                        photoInputRef.current?.click();
-                      }}
-                    >
-                      {entry.preview ? (
-                        <img src={entry.preview} alt={`Photo ${idx + 1}`} className="w-full h-full object-cover" />
-                      ) : (
-                        <Camera className="w-8 h-8 text-slate-400" />
+                      {/* Photo thumbnail / upload button */}
+                      <div
+                        className="w-20 h-20 md:w-24 md:h-24 flex-shrink-0 rounded-lg border-2 border-dashed border-slate-300 flex items-center justify-center cursor-pointer hover:border-[#3b82f6] hover:bg-blue-50 transition-colors overflow-hidden"
+                        onClick={() => {
+                          setActivePhotoId(entry.id);
+                          photoInputRef.current?.click();
+                        }}
+                      >
+                        {entry.preview ? (
+                          <img src={entry.preview} alt={`Photo ${idx + 1}`} className="w-full h-full object-cover" />
+                        ) : (
+                          <Camera className="w-8 h-8 text-slate-400" />
+                        )}
+                      </div>
+
+                      {/* Delete button */}
+                      {photoEntries.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removePhotoEntry(entry.id)}
+                          className="ml-auto text-red-400 hover:text-red-600 pt-2 transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       )}
                     </div>
 
-                    {/* Fields */}
-                    <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-2">
+                    {/* Fields - stack on mobile, row on tablet+ */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                       <div className="flex flex-col gap-1">
                         <label className="text-xs font-semibold text-slate-600">Level</label>
                         <select
@@ -844,17 +859,6 @@ export default function PDVCollectionForm() {
                         </div>
                       </div>
                     </div>
-
-                    {/* Delete button */}
-                    {photoEntries.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removePhotoEntry(entry.id)}
-                        className="text-red-400 hover:text-red-600 pt-2 transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
                   </div>
                 ))}
               </div>
@@ -884,29 +888,42 @@ export default function PDVCollectionForm() {
               />
               <div className="space-y-4">
                 {pushPullEntries.map((entry, idx) => (
-                  <div key={entry.id} className="flex gap-3 items-start p-3 bg-slate-50 rounded-lg border border-slate-200">
-                    <div className="flex items-center text-slate-400 pt-2">
-                      <GripVertical className="w-4 h-4" />
-                      <span className="text-sm font-bold ml-1 text-slate-500">{idx + 1}</span>
-                    </div>
+                  <div key={entry.id} className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-3">
+                    <div className="flex gap-3 items-start">
+                      <div className="flex items-center text-slate-400 pt-2">
+                        <GripVertical className="w-4 h-4" />
+                        <span className="text-sm font-bold ml-1 text-slate-500">{idx + 1}</span>
+                      </div>
 
-                    {/* Photo thumbnail / upload button */}
-                    <div
-                      className="w-20 h-20 md:w-24 md:h-24 flex-shrink-0 rounded-lg border-2 border-dashed border-slate-300 flex items-center justify-center cursor-pointer hover:border-[#3b82f6] hover:bg-blue-50 transition-colors overflow-hidden"
-                      onClick={() => {
-                        setActivePushPullId(entry.id);
-                        pushPullInputRef.current?.click();
-                      }}
-                    >
-                      {entry.preview ? (
-                        <img src={entry.preview} alt={`Push/Pull ${idx + 1}`} className="w-full h-full object-cover" />
-                      ) : (
-                        <Camera className="w-8 h-8 text-slate-400" />
+                      {/* Photo thumbnail / upload button */}
+                      <div
+                        className="w-20 h-20 md:w-24 md:h-24 flex-shrink-0 rounded-lg border-2 border-dashed border-slate-300 flex items-center justify-center cursor-pointer hover:border-[#3b82f6] hover:bg-blue-50 transition-colors overflow-hidden"
+                        onClick={() => {
+                          setActivePushPullId(entry.id);
+                          pushPullInputRef.current?.click();
+                        }}
+                      >
+                        {entry.preview ? (
+                          <img src={entry.preview} alt={`Push/Pull ${idx + 1}`} className="w-full h-full object-cover" />
+                        ) : (
+                          <Camera className="w-8 h-8 text-slate-400" />
+                        )}
+                      </div>
+
+                      {/* Delete button */}
+                      {pushPullEntries.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removePushPullEntry(entry.id)}
+                          className="ml-auto text-red-400 hover:text-red-600 pt-2 transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       )}
                     </div>
 
-                    {/* Fields */}
-                    <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-2">
+                    {/* Fields - stack on mobile, row on tablet+ */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                       <div className="flex flex-col gap-1">
                         <label className="text-xs font-semibold text-slate-600">Level</label>
                         <select
@@ -949,17 +966,6 @@ export default function PDVCollectionForm() {
                         </div>
                       </div>
                     </div>
-
-                    {/* Delete button */}
-                    {pushPullEntries.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removePushPullEntry(entry.id)}
-                        className="text-red-400 hover:text-red-600 pt-2 transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
                   </div>
                 ))}
               </div>
