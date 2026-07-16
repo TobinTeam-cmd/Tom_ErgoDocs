@@ -1,0 +1,23 @@
+# AWS Amplify build spec.
+# Repository is a mini-monorepo: the actual Next.js app lives in ergo-app/.
+# `appRoot: ergo-app` tells Amplify to cd into that folder before building.
+
+version: 1
+applications:
+  - appRoot: ergo-app
+    frontend:
+      phases:
+        preBuild:
+          commands:
+            - npm ci
+        build:
+          commands:
+            - npm run build
+      artifacts:
+        baseDirectory: .next
+        files:
+          - '**/*'
+      cache:
+        paths:
+          - node_modules/**/*
+          - .next/cache/**/*
